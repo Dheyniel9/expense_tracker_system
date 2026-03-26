@@ -331,12 +331,6 @@ export default function Home() {
               <p className={`text-2xl font-black ${balance >= 0 ? 'text-emerald-700' : 'text-rose-700'}`}>
                 {formatAmount(balance)}
               </p>
-              <button
-                onClick={lockSystem}
-                className="mt-1 inline-flex rounded-md border border-slate-300 bg-white px-2 py-1 text-[11px] font-semibold uppercase tracking-wide text-slate-600 transition hover:bg-slate-100"
-              >
-                Lock
-              </button>
             </div>
           </div>
 
