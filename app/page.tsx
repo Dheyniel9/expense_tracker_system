@@ -1,6 +1,7 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import Link from 'next/link'
+import { useEffect, useMemo, useState } from 'react'
 import { supabase } from './lib/supabaseClient'
 
 type TransactionType = 'add' | 'expense'
@@ -30,6 +31,7 @@ type TransactionRow = {
 
 const transactionTypes: TransactionType[] = ['add', 'expense']
 const sourceOfFundsOptions: SourceOfFunds[] = ['fund', 'personal']
+const USERS = ['Czar', 'Jem', 'Ronz', 'Rich']
 const isTransactionType = (value: string): value is TransactionType =>
   transactionTypes.includes(value as TransactionType)
 const isSourceOfFunds = (value: string): value is SourceOfFunds =>
@@ -38,8 +40,49 @@ const getTodayDate = () => new Date().toISOString().slice(0, 10)
 const APP_PASSWORD = 'bjjc'
 const AUTH_STORAGE_KEY = 'jbbc_fund_tracker_unlocked'
 
+const formatAmount = (value: number) =>
+  new Intl.NumberFormat('en-PH', {
+    style: 'currency',
+    currency: 'PHP',
+    maximumFractionDigits: 2
+  }).format(value)
+
+const formatDateOnly = (value: string) =>
+  new Intl.DateTimeFormat('en-PH', {
+    year: 'numeric',
+    month: 'short',
+    day: '2-digit'
+  }).format(new Date(value))
+
+const getTransactionDateKey = (transaction: Transaction) =>
+  (transaction.transaction_date || transaction.created_at).slice(0, 10)
+
+const parseTransactions = (rows: TransactionRow[]): Transaction[] =>
+  rows.reduce<Transaction[]>((acc, item) => {
+    if (!isTransactionType(item.type)) return acc
+    const rawSource = item.source_of_funds ?? ''
+
+    acc.push({
+      ...item,
+      type: item.type,
+      source_of_funds: isSourceOfFunds(rawSource) ? rawSource : 'fund'
+    })
+
+    return acc
+  }, [])
+
+const getReimbursedPersonalIds = (items: Transaction[]) =>
+  items.reduce<Set<number>>((acc, transaction) => {
+    if (transaction.type !== 'expense' || transaction.source_of_funds !== 'fund') return acc
+
+    const match = transaction.description.match(/\[REIMBURSE:(\d+)\]/)
+    if (!match) return acc
+
+    acc.add(Number(match[1]))
+    return acc
+  }, new Set<number>())
+
 export default function Home() {
-  const users = ['Czar', 'Jem', 'Ronz', 'Rich']
   const [transactions, setTransactions] = useState<Transaction[]>([])
   const [type, setType] = useState<TransactionType>('add')
   const [desc, setDesc] = useState('')
@@ -55,6 +98,8 @@ export default function Home() {
   const [typeFilter, setTypeFilter] = useState<'all' | TransactionType>('all')
   const [sourceFilter, setSourceFilter] = useState<'all' | SourceOfFunds>('all')
   const [dateFilter, setDateFilter] = useState('')
+  const [isReimbursingId, setIsReimbursingId] = useState<number | null>(null)
+  const [reimburseMessage, setReimburseMessage] = useState('')
   const [passwordInput, setPasswordInput] = useState('')
   const [authError, setAuthError] = useState('')
   const [isUnlocked, setIsUnlocked] = useState(false)
@@ -80,23 +125,7 @@ export default function Home() {
         return
       }
 
-      const parsed: Transaction[] = ((data ?? []) as TransactionRow[]).reduce<Transaction[]>(
-        (acc, item) => {
-          if (!isTransactionType(item.type)) return acc
-          const rawSource = item.source_of_funds ?? ''
-
-          acc.push({
-            ...item,
-            type: item.type,
-            source_of_funds: isSourceOfFunds(rawSource)
-              ? rawSource
-              : 'fund'
-          })
-
-          return acc
-        },
-        []
-      )
+      const parsed = parseTransactions((data ?? []) as TransactionRow[])
 
       setTransactions(parsed)
       setFetchError('')
@@ -170,42 +199,50 @@ export default function Home() {
     }
   }
 
-  // COMPUTE BALANCE
-  const balance = transactions.reduce((sum, t) => {
-    if (t.source_of_funds !== 'fund') return sum
-    if (t.type === 'add') return sum + t.amount
-    if (t.type === 'expense') return sum - t.amount
-    return sum
-  }, 0)
+  const reimbursedPersonalIds = useMemo(
+    () => getReimbursedPersonalIds(transactions),
+    [transactions]
+  )
 
-  const totalAdded = transactions.reduce((sum, t) => {
-    if (t.type === 'add' && t.source_of_funds === 'fund') return sum + t.amount
-    return sum
-  }, 0)
+  const { balance, totalAdded, totalExpense, personalExpenseTotal, outstandingPersonalTotal, reimbursedPersonalTotal } =
+    useMemo(() => {
+      const computedBalance = transactions.reduce((sum, transaction) => {
+        if (transaction.source_of_funds !== 'fund') return sum
+        if (transaction.type === 'add') return sum + transaction.amount
+        if (transaction.type === 'expense') return sum - transaction.amount
+        return sum
+      }, 0)
 
-  const totalExpense = transactions.reduce((sum, t) => {
-    if (t.type === 'expense' && t.source_of_funds === 'fund') return sum + t.amount
-    return sum
-  }, 0)
+      const computedTotalAdded = transactions.reduce((sum, transaction) => {
+        if (transaction.type === 'add' && transaction.source_of_funds === 'fund') return sum + transaction.amount
+        return sum
+      }, 0)
 
-  const personalExpenseTotal = transactions.reduce((sum, t) => {
-    if (t.type === 'expense' && t.source_of_funds === 'personal') return sum + t.amount
-    return sum
-  }, 0)
+      const computedTotalExpense = transactions.reduce((sum, transaction) => {
+        if (transaction.type === 'expense' && transaction.source_of_funds === 'fund') return sum + transaction.amount
+        return sum
+      }, 0)
 
-  const formatAmount = (value: number) =>
-    new Intl.NumberFormat('en-PH', {
-      style: 'currency',
-      currency: 'PHP',
-      maximumFractionDigits: 2
-    }).format(value)
+      const computedPersonalExpenseTotal = transactions.reduce((sum, transaction) => {
+        if (transaction.type === 'expense' && transaction.source_of_funds === 'personal') return sum + transaction.amount
+        return sum
+      }, 0)
 
-  const formatDateOnly = (value: string) =>
-    new Intl.DateTimeFormat('en-PH', {
-      year: 'numeric',
-      month: 'short',
-      day: '2-digit'
-    }).format(new Date(value))
+      const computedOutstandingPersonalTotal = transactions.reduce((sum, transaction) => {
+        if (transaction.type !== 'expense' || transaction.source_of_funds !== 'personal') return sum
+        if (reimbursedPersonalIds.has(transaction.id)) return sum
+        return sum + transaction.amount
+      }, 0)
+
+      return {
+        balance: computedBalance,
+        totalAdded: computedTotalAdded,
+        totalExpense: computedTotalExpense,
+        personalExpenseTotal: computedPersonalExpenseTotal,
+        outstandingPersonalTotal: computedOutstandingPersonalTotal,
+        reimbursedPersonalTotal: computedPersonalExpenseTotal - computedOutstandingPersonalTotal
+      }
+    }, [transactions, reimbursedPersonalIds])
 
   const onTypeChange = (nextType: string) => {
     if (isTransactionType(nextType)) {
@@ -223,25 +260,60 @@ export default function Home() {
     personal: 'bg-violet-100 text-violet-800'
   }
 
-  const getTransactionDateKey = (transaction: Transaction) =>
-    (transaction.transaction_date || transaction.created_at).slice(0, 10)
+  const availableUsers = useMemo(
+    () => Array.from(new Set([...USERS, ...transactions.map((transaction) => transaction.user_name)])),
+    [transactions]
+  )
 
-  const availableUsers = Array.from(new Set([...users, ...transactions.map((t) => t.user_name)]))
+  const filteredTransactions = useMemo(
+    () =>
+      transactions.filter((transaction) => {
+        const matchesName = nameFilter === 'all' || transaction.user_name === nameFilter
+        const matchesType = typeFilter === 'all' || transaction.type === typeFilter
+        const matchesSource = sourceFilter === 'all' || transaction.source_of_funds === sourceFilter
+        const matchesDate = !dateFilter || getTransactionDateKey(transaction) === dateFilter
 
-  const filteredTransactions = transactions.filter((transaction) => {
-    const matchesName = nameFilter === 'all' || transaction.user_name === nameFilter
-    const matchesType = typeFilter === 'all' || transaction.type === typeFilter
-    const matchesSource = sourceFilter === 'all' || transaction.source_of_funds === sourceFilter
-    const matchesDate = !dateFilter || getTransactionDateKey(transaction) === dateFilter
-
-    return matchesName && matchesType && matchesSource && matchesDate
-  })
+        return matchesName && matchesType && matchesSource && matchesDate
+      }),
+    [transactions, nameFilter, typeFilter, sourceFilter, dateFilter]
+  )
 
   const clearFilters = () => {
     setNameFilter('all')
     setTypeFilter('all')
     setSourceFilter('all')
     setDateFilter('')
+  }
+
+  const markPersonalExpenseAsReimbursed = async (transaction: Transaction) => {
+    if (isReimbursingId) return
+    if (reimbursedPersonalIds.has(transaction.id)) return
+
+    setIsReimbursingId(transaction.id)
+    setReimburseMessage('')
+
+    try {
+      const { error } = await supabase.from('transactions').insert({
+        type: 'expense',
+        source_of_funds: 'fund',
+        description: `[REIMBURSE:${transaction.id}] Reimbursement to ${transaction.user_name}: ${transaction.description}`,
+        amount: transaction.amount,
+        user_name: transaction.user_name,
+        transaction_date: getTodayDate()
+      })
+
+      if (error) {
+        setReimburseMessage('Unable to mark as reimbursed. Please try again.')
+        return
+      }
+
+      setReimburseMessage('Personal expense marked as reimbursed.')
+      await fetchTransactions()
+    } catch {
+      setReimburseMessage('Unable to mark as reimbursed. Please try again.')
+    } finally {
+      setIsReimbursingId(null)
+    }
   }
 
   const unlockSystem = () => {
@@ -326,15 +398,23 @@ export default function Home() {
                 <p className="text-2xl font-black leading-tight text-slate-900">Fund Tracker</p>
               </div>
             </div>
-            <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-1 text-right">
-              <p className="text-[11px] uppercase tracking-wider text-slate-500">Funds balance</p>
-              <p className={`text-2xl font-black ${balance >= 0 ? 'text-emerald-700' : 'text-rose-700'}`}>
-                {formatAmount(balance)}
-              </p>
+            <div className="space-y-1.5 text-right">
+              <Link
+                href="/product-calculation"
+                className="inline-flex rounded-lg bg-slate-900 px-3 py-1.5 text-xs font-semibold uppercase tracking-wide text-white transition hover:bg-slate-700"
+              >
+                Product Calculation
+              </Link>
+              <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-1">
+                <p className="text-[11px] uppercase tracking-wider text-slate-500">Funds balance</p>
+                <p className={`text-2xl font-black ${balance >= 0 ? 'text-emerald-700' : 'text-rose-700'}`}>
+                  {formatAmount(balance)}
+                </p>
+              </div>
             </div>
           </div>
 
-          <div className="mt-4 grid grid-cols-1 gap-2 md:grid-cols-4">
+          <div className="mt-4 grid grid-cols-1 gap-2 md:grid-cols-5">
             <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2">
               <p className="text-[11px] font-semibold uppercase tracking-wide text-emerald-800">Total Added</p>
               <p className="text-lg font-extrabold text-emerald-800">{formatAmount(totalAdded)}</p>
@@ -344,13 +424,29 @@ export default function Home() {
               <p className="text-lg font-extrabold text-rose-800">{formatAmount(totalExpense)}</p>
             </div>
             <div className="rounded-lg border border-violet-200 bg-violet-50 px-3 py-2">
-              <p className="text-[11px] font-semibold uppercase tracking-wide text-violet-800">Personal Spent</p>
-              <p className="text-lg font-extrabold text-violet-800">{formatAmount(personalExpenseTotal)}</p>
+              <p className="text-[11px] font-semibold uppercase tracking-wide text-violet-800">Personal Outstanding</p>
+              <p className="text-lg font-extrabold text-violet-800">{formatAmount(outstandingPersonalTotal)}</p>
+            </div>
+            <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2">
+              <p className="text-[11px] font-semibold uppercase tracking-wide text-amber-800">Personal Reimbursed</p>
+              <p className="text-lg font-extrabold text-amber-800">{formatAmount(reimbursedPersonalTotal)}</p>
             </div>
             <div className="rounded-lg border border-sky-200 bg-sky-50 px-3 py-2">
               <p className="text-[11px] font-semibold uppercase tracking-wide text-sky-800">Entries</p>
               <p className="text-lg font-extrabold text-sky-800">{transactions.length}</p>
             </div>
+          </div>
+
+          <div className="mt-2">
+            {outstandingPersonalTotal === 0 ? (
+              <p className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm font-semibold text-emerald-700">
+                All personal funds are fully paid.
+              </p>
+            ) : (
+              <p className="rounded-lg border border-violet-200 bg-violet-50 px-3 py-2 text-sm font-semibold text-violet-700">
+                Personal reimbursement pending: {formatAmount(outstandingPersonalTotal)}
+              </p>
+            )}
           </div>
         </header>
 
@@ -407,7 +503,7 @@ export default function Home() {
                 <span className="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-600">Name</span>
                 <select value={user} onChange={(e) => setUser(e.target.value)} className ="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none transition focus:border-cyan-500 focus:ring-2 focus:ring-cyan-100">
                   <option value="">Select name</option>
-                  {users.map((u) => (
+                  {USERS.map((u) => (
                     <option key={u} value={u}>{u}</option>
                   ))}
                 </select>
@@ -539,6 +635,10 @@ export default function Home() {
               <p className="mb-3 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">{fetchError}</p>
             ) : null}
 
+            {reimburseMessage ? (
+              <p className="mb-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">{reimburseMessage}</p>
+            ) : null}
+
             {filteredTransactions.length === 0 ? (
               <div className="rounded-xl border border-dashed border-slate-300 bg-slate-50 p-8 text-center text-sm text-slate-500">
                 {transactions.length === 0
@@ -572,6 +672,21 @@ export default function Home() {
                       <div className="text-left sm:text-right">
                         <p className="font-bold text-slate-900">{formatAmount(t.amount)}</p>
                         <p className="text-xs text-slate-500">{formatDateOnly(t.transaction_date || t.created_at)}</p>
+                        {t.type === 'expense' && t.source_of_funds === 'personal' ? (
+                          reimbursedPersonalIds.has(t.id) ? (
+                            <span className="mt-1 inline-flex rounded-md bg-emerald-100 px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide text-emerald-800">
+                              Reimbursed
+                            </span>
+                          ) : (
+                            <button
+                              onClick={() => markPersonalExpenseAsReimbursed(t)}
+                              disabled={isReimbursingId === t.id}
+                              className="mt-1 inline-flex rounded-md border border-amber-300 bg-amber-50 px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide text-amber-800 transition hover:bg-amber-100 disabled:cursor-not-allowed disabled:opacity-60"
+                            >
+                              {isReimbursingId === t.id ? 'Saving...' : 'Mark Paid'}
+                            </button>
+                          )
+                        ) : null}
                       </div>
                     </li>
                   ))}
