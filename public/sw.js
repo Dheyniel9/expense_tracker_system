@@ -1,4 +1,4 @@
-const CACHE_NAME = 'jbbc-fund-tracker-v1'
+const CACHE_NAME = 'jbbc-fund-tracker-v3'
 const OFFLINE_URL = '/offline'
 const APP_SHELL = ['/', '/offline', '/manifest.webmanifest']
 
@@ -22,21 +22,18 @@ self.addEventListener('activate', (event) => {
 
 self.addEventListener('fetch', (event) => {
   const { request } = event
+  const url = new URL(request.url)
+  const isSameOrigin = url.origin === self.location.origin
 
   if (request.method !== 'GET') return
+  if (url.protocol !== 'http:' && url.protocol !== 'https:') return
 
   if (request.mode === 'navigate') {
     event.respondWith(
       (async () => {
         try {
-          const networkResponse = await fetch(request)
-          const cache = await caches.open(CACHE_NAME)
-          cache.put(request, networkResponse.clone())
-          return networkResponse
+          return await fetch(request)
         } catch {
-          const cachedPage = await caches.match(request)
-          if (cachedPage) return cachedPage
-
           const offlinePage = await caches.match(OFFLINE_URL)
           if (offlinePage) return offlinePage
 
@@ -50,19 +47,32 @@ self.addEventListener('fetch', (event) => {
     return
   }
 
+  if (!isSameOrigin) return
+  if (url.pathname.startsWith('/_next/')) return
+
+  const cacheableDestinations = ['script', 'style', 'image', 'font', 'manifest']
+  if (!cacheableDestinations.includes(request.destination)) return
+
   event.respondWith(
     (async () => {
-      const cachedResponse = await caches.match(request)
-
-      const networkResponsePromise = fetch(request)
-        .then(async (networkResponse) => {
-          const cache = await caches.open(CACHE_NAME)
-          cache.put(request, networkResponse.clone())
+      try {
+        const networkResponse = await fetch(request)
+        if (!networkResponse.ok || networkResponse.type !== 'basic') {
           return networkResponse
-        })
-        .catch(() => cachedResponse)
+        }
 
-      return cachedResponse || networkResponsePromise
+        const cache = await caches.open(CACHE_NAME)
+        cache.put(request, networkResponse.clone())
+        return networkResponse
+      } catch {
+        const cachedResponse = await caches.match(request)
+        if (cachedResponse) return cachedResponse
+
+        return new Response('Offline', {
+          status: 503,
+          statusText: 'Offline'
+        })
+      }
     })()
   )
 })
