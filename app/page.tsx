@@ -20,7 +20,7 @@ type Transaction = {
 type TransactionRow = {
   id: number
   type: string
-  source_of_funds: string
+  source_of_funds: string | null
   description: string
   amount: number
   user_name: string
@@ -68,9 +68,22 @@ export default function Home() {
         return
       }
 
-      const parsed = ((data ?? []) as TransactionRow[]).filter(
-        (item): item is Transaction =>
-          isTransactionType(item.type) && isSourceOfFunds(item.source_of_funds)
+      const parsed: Transaction[] = ((data ?? []) as TransactionRow[]).reduce<Transaction[]>(
+        (acc, item) => {
+          if (!isTransactionType(item.type)) return acc
+          const rawSource = item.source_of_funds ?? ''
+
+          acc.push({
+            ...item,
+            type: item.type,
+            source_of_funds: isSourceOfFunds(rawSource)
+              ? rawSource
+              : 'fund'
+          })
+
+          return acc
+        },
+        []
       )
 
       setTransactions(parsed)
@@ -146,12 +159,14 @@ export default function Home() {
 
   // COMPUTE BALANCE
   const balance = transactions.reduce((sum, t) => {
-    if (t.type === 'expense' && t.source_of_funds === 'fund') return sum - t.amount
-    return sum + t.amount
+    if (t.source_of_funds !== 'fund') return sum
+    if (t.type === 'add') return sum + t.amount
+    if (t.type === 'expense') return sum - t.amount
+    return sum
   }, 0)
 
   const totalAdded = transactions.reduce((sum, t) => {
-    if (t.type === 'add') return sum + t.amount
+    if (t.type === 'add' && t.source_of_funds === 'fund') return sum + t.amount
     return sum
   }, 0)
 
@@ -233,7 +248,7 @@ export default function Home() {
               </div>
             </div>
             <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-1 text-right">
-              <p className="text-[11px] uppercase tracking-wider text-slate-500">Net balance</p>
+              <p className="text-[11px] uppercase tracking-wider text-slate-500">Funds balance</p>
               <p className={`text-2xl font-black ${balance >= 0 ? 'text-emerald-700' : 'text-rose-700'}`}>
                 {formatAmount(balance)}
               </p>
