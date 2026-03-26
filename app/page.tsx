@@ -4,10 +4,12 @@ import { useEffect, useState } from 'react'
 import { supabase } from './lib/supabaseClient'
 
 type TransactionType = 'add' | 'expense'
+type SourceOfFunds = 'fund' | 'personal'
 
 type Transaction = {
   id: number
   type: TransactionType
+  source_of_funds: SourceOfFunds
   description: string
   amount: number
   user_name: string
@@ -18,6 +20,7 @@ type Transaction = {
 type TransactionRow = {
   id: number
   type: string
+  source_of_funds: string
   description: string
   amount: number
   user_name: string
@@ -26,8 +29,11 @@ type TransactionRow = {
 }
 
 const transactionTypes: TransactionType[] = ['add', 'expense']
+const sourceOfFundsOptions: SourceOfFunds[] = ['fund', 'personal']
 const isTransactionType = (value: string): value is TransactionType =>
   transactionTypes.includes(value as TransactionType)
+const isSourceOfFunds = (value: string): value is SourceOfFunds =>
+  sourceOfFundsOptions.includes(value as SourceOfFunds)
 const getTodayDate = () => new Date().toISOString().slice(0, 10)
 
 export default function Home() {
@@ -37,6 +43,7 @@ export default function Home() {
   const [desc, setDesc] = useState('')
   const [amount, setAmount] = useState(0)
   const [user, setUser] = useState('')
+  const [sourceOfFunds, setSourceOfFunds] = useState<SourceOfFunds>('fund')
   const [transactionDate, setTransactionDate] = useState(getTodayDate())
   const [isSaving, setIsSaving] = useState(false)
   const [fetchError, setFetchError] = useState('')
@@ -44,6 +51,7 @@ export default function Home() {
   const [formSuccess, setFormSuccess] = useState('')
   const [nameFilter, setNameFilter] = useState('all')
   const [typeFilter, setTypeFilter] = useState<'all' | TransactionType>('all')
+  const [sourceFilter, setSourceFilter] = useState<'all' | SourceOfFunds>('all')
   const [dateFilter, setDateFilter] = useState('')
 
   // FETCH DATA
@@ -51,7 +59,7 @@ export default function Home() {
     try {
       const { data, error } = await supabase
         .from('transactions')
-        .select('id, type, description, amount, user_name, transaction_date, created_at')
+        .select('id, type, source_of_funds, description, amount, user_name, transaction_date, created_at')
         .order('transaction_date', { ascending: false })
         .order('created_at', { ascending: false })
 
@@ -61,7 +69,8 @@ export default function Home() {
       }
 
       const parsed = ((data ?? []) as TransactionRow[]).filter(
-        (item): item is Transaction => isTransactionType(item.type)
+        (item): item is Transaction =>
+          isTransactionType(item.type) && isSourceOfFunds(item.source_of_funds)
       )
 
       setTransactions(parsed)
@@ -107,6 +116,7 @@ export default function Home() {
     try {
       const { error } = await supabase.from('transactions').insert({
         type,
+        source_of_funds: sourceOfFunds,
         description: normalizedDesc,
         amount,
         user_name: normalizedUser,
@@ -122,6 +132,7 @@ export default function Home() {
       setAmount(0)
       setUser('')
       setType('add')
+      setSourceOfFunds('fund')
       setTransactionDate(getTodayDate())
       setFormSuccess('Transaction saved.')
 
@@ -135,7 +146,7 @@ export default function Home() {
 
   // COMPUTE BALANCE
   const balance = transactions.reduce((sum, t) => {
-    if (t.type === 'expense') return sum - t.amount
+    if (t.type === 'expense' && t.source_of_funds === 'fund') return sum - t.amount
     return sum + t.amount
   }, 0)
 
@@ -145,7 +156,12 @@ export default function Home() {
   }, 0)
 
   const totalExpense = transactions.reduce((sum, t) => {
-    if (t.type === 'expense') return sum + t.amount
+    if (t.type === 'expense' && t.source_of_funds === 'fund') return sum + t.amount
+    return sum
+  }, 0)
+
+  const personalExpenseTotal = transactions.reduce((sum, t) => {
+    if (t.type === 'expense' && t.source_of_funds === 'personal') return sum + t.amount
     return sum
   }, 0)
 
@@ -174,6 +190,11 @@ export default function Home() {
     expense: 'bg-rose-100 text-rose-800'
   }
 
+  const sourceBadgeClass: Record<SourceOfFunds, string> = {
+    fund: 'bg-sky-100 text-sky-800',
+    personal: 'bg-violet-100 text-violet-800'
+  }
+
   const getTransactionDateKey = (transaction: Transaction) =>
     (transaction.transaction_date || transaction.created_at).slice(0, 10)
 
@@ -182,14 +203,16 @@ export default function Home() {
   const filteredTransactions = transactions.filter((transaction) => {
     const matchesName = nameFilter === 'all' || transaction.user_name === nameFilter
     const matchesType = typeFilter === 'all' || transaction.type === typeFilter
+    const matchesSource = sourceFilter === 'all' || transaction.source_of_funds === sourceFilter
     const matchesDate = !dateFilter || getTransactionDateKey(transaction) === dateFilter
 
-    return matchesName && matchesType && matchesDate
+    return matchesName && matchesType && matchesSource && matchesDate
   })
 
   const clearFilters = () => {
     setNameFilter('all')
     setTypeFilter('all')
+    setSourceFilter('all')
     setDateFilter('')
   }
 
@@ -217,14 +240,18 @@ export default function Home() {
             </div>
           </div>
 
-          <div className="mt-4 grid grid-cols-1 gap-2 md:grid-cols-3">
+          <div className="mt-4 grid grid-cols-1 gap-2 md:grid-cols-4">
             <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2">
               <p className="text-[11px] font-semibold uppercase tracking-wide text-emerald-800">Total Added</p>
               <p className="text-lg font-extrabold text-emerald-800">{formatAmount(totalAdded)}</p>
             </div>
             <div className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2">
-              <p className="text-[11px] font-semibold uppercase tracking-wide text-rose-800">Total Expense</p>
+              <p className="text-[11px] font-semibold uppercase tracking-wide text-rose-800">Fund Expense</p>
               <p className="text-lg font-extrabold text-rose-800">{formatAmount(totalExpense)}</p>
+            </div>
+            <div className="rounded-lg border border-violet-200 bg-violet-50 px-3 py-2">
+              <p className="text-[11px] font-semibold uppercase tracking-wide text-violet-800">Personal Spent</p>
+              <p className="text-lg font-extrabold text-violet-800">{formatAmount(personalExpenseTotal)}</p>
             </div>
             <div className="rounded-lg border border-sky-200 bg-sky-50 px-3 py-2">
               <p className="text-[11px] font-semibold uppercase tracking-wide text-sky-800">Entries</p>
@@ -294,6 +321,25 @@ export default function Home() {
               </label>
 
               <label className="block">
+                <span className="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-600">Source of funds</span>
+                <select
+                  value={sourceOfFunds}
+                  onChange={(e) => {
+                    if (isSourceOfFunds(e.target.value)) {
+                      setSourceOfFunds(e.target.value)
+                    }
+                  }}
+                  className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm outline-none transition focus:border-cyan-500 focus:ring-2 focus:ring-cyan-100"
+                >
+                  {sourceOfFundsOptions.map((source) => (
+                    <option key={source} value={source}>
+                      {source === 'fund' ? 'Fund' : 'Personal'}
+                    </option>
+                  ))}
+                </select>
+              </label>
+
+              <label className="block">
                 <span className="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-600">Transaction date</span>
                 <input
                   type="date"
@@ -321,7 +367,7 @@ export default function Home() {
               </span>
             </div>
 
-            <div className="mb-3 grid grid-cols-1 gap-2 rounded-xl border border-slate-200 bg-slate-50 p-2 sm:grid-cols-4">
+            <div className="mb-3 grid grid-cols-1 gap-2 rounded-xl border border-slate-200 bg-slate-50 p-2 sm:grid-cols-5">
               <label className="block">
                 <span className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-slate-600">Name</span>
                 <select
@@ -349,6 +395,27 @@ export default function Home() {
                   {transactionTypes.map((transactionType) => (
                     <option key={transactionType} value={transactionType}>
                       {transactionType.charAt(0).toUpperCase() + transactionType.slice(1)}
+                    </option>
+                  ))}
+                </select>
+              </label>
+
+              <label className="block">
+                <span className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-slate-600">Source</span>
+                <select
+                  value={sourceFilter}
+                  onChange={(e) => {
+                    const value = e.target.value
+                    if (value === 'all' || isSourceOfFunds(value)) {
+                      setSourceFilter(value as 'all' | SourceOfFunds)
+                    }
+                  }}
+                  className="w-full rounded-lg border border-slate-300 bg-white px-2.5 py-2 text-sm outline-none transition focus:border-cyan-500 focus:ring-2 focus:ring-cyan-100"
+                >
+                  <option value="all">All sources</option>
+                  {sourceOfFundsOptions.map((source) => (
+                    <option key={source} value={source}>
+                      {source === 'fund' ? 'Fund' : 'Personal'}
                     </option>
                   ))}
                 </select>
@@ -386,23 +453,27 @@ export default function Home() {
               </div>
             ) : (
               <div className="overflow-hidden rounded-xl border border-slate-200">
-                <div className="hidden grid-cols-[1.1fr_0.8fr_0.65fr_1fr] gap-2 bg-slate-100 px-3 py-2 text-xs font-semibold uppercase tracking-wide text-slate-600 sm:grid">
+                <div className="hidden grid-cols-[1.1fr_0.8fr_0.65fr_0.75fr_1fr] gap-2 bg-slate-100 px-3 py-2 text-xs font-semibold uppercase tracking-wide text-slate-600 sm:grid">
                   <p>Description</p>
                   <p>Member</p>
                   <p>Type</p>
+                  <p>Source</p>
                   <p className="text-right">Amount / Date</p>
                 </div>
                 <ul className="divide-y divide-slate-200">
                   {filteredTransactions.map((t, index) => (
                     <li
                       key={t.id}
-                      className="grid grid-cols-1 gap-1 bg-white px-3 py-2.5 text-sm sm:grid-cols-[1.1fr_0.8fr_0.65fr_1fr] sm:items-center sm:gap-2"
+                      className="grid grid-cols-1 gap-1 bg-white px-3 py-2.5 text-sm sm:grid-cols-[1.1fr_0.8fr_0.65fr_0.75fr_1fr] sm:items-center sm:gap-2"
                       style={{ animationDelay: `${index * 45}ms` }}
                     >
                       <p className="font-semibold text-slate-900">{t.description}</p>
                       <p className="text-slate-600">{t.user_name}</p>
                       <span className={`inline-flex w-fit rounded-full px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide ${typeBadgeClass[t.type]}`}>
                         {t.type}
+                      </span>
+                      <span className={`inline-flex w-fit rounded-full px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide ${sourceBadgeClass[t.source_of_funds]}`}>
+                        {t.source_of_funds}
                       </span>
                       <div className="text-left sm:text-right">
                         <p className="font-bold text-slate-900">{formatAmount(t.amount)}</p>
