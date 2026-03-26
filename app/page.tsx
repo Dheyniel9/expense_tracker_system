@@ -11,6 +11,7 @@ type Transaction = {
   description: string
   amount: number
   user_name: string
+  transaction_date: string | null
   created_at: string
 }
 
@@ -20,20 +21,23 @@ type TransactionRow = {
   description: string
   amount: number
   user_name: string
+  transaction_date: string | null
   created_at: string
 }
 
 const transactionTypes: TransactionType[] = ['add', 'expense']
 const isTransactionType = (value: string): value is TransactionType =>
   transactionTypes.includes(value as TransactionType)
+const getTodayDate = () => new Date().toISOString().slice(0, 10)
 
 export default function Home() {
-  const users = ['Czar','Jem','Ronz','Rich']
+  const users = ['Czar', 'Jem', 'Ronz', 'Rich']
   const [transactions, setTransactions] = useState<Transaction[]>([])
   const [type, setType] = useState<TransactionType>('add')
   const [desc, setDesc] = useState('')
   const [amount, setAmount] = useState(0)
   const [user, setUser] = useState('')
+  const [transactionDate, setTransactionDate] = useState(getTodayDate())
   const [isSaving, setIsSaving] = useState(false)
   const [fetchError, setFetchError] = useState('')
   const [formError, setFormError] = useState('')
@@ -44,7 +48,8 @@ export default function Home() {
     try {
       const { data, error } = await supabase
         .from('transactions')
-        .select('id, type, description, amount, user_name, created_at')
+        .select('id, type, description, amount, user_name, transaction_date, created_at')
+        .order('transaction_date', { ascending: false })
         .order('created_at', { ascending: false })
 
       if (error) {
@@ -86,6 +91,12 @@ export default function Home() {
       return
     }
 
+    if (!transactionDate) {
+      setFormError('Transaction date is required.')
+      setFormSuccess('')
+      return
+    }
+
     setIsSaving(true)
     setFormError('')
     setFormSuccess('')
@@ -95,7 +106,8 @@ export default function Home() {
         type,
         description: normalizedDesc,
         amount,
-        user_name: normalizedUser
+        user_name: normalizedUser,
+        transaction_date: transactionDate
       })
 
       if (error) {
@@ -107,6 +119,7 @@ export default function Home() {
       setAmount(0)
       setUser('')
       setType('add')
+      setTransactionDate(getTodayDate())
       setFormSuccess('Transaction saved.')
 
       await fetchTransactions()
@@ -139,6 +152,13 @@ export default function Home() {
       currency: 'PHP',
       maximumFractionDigits: 2
     }).format(value)
+
+  const formatDateOnly = (value: string) =>
+    new Intl.DateTimeFormat('en-PH', {
+      year: 'numeric',
+      month: 'short',
+      day: '2-digit'
+    }).format(new Date(value))
 
   const onTypeChange = (nextType: string) => {
     if (isTransactionType(nextType)) {
@@ -251,10 +271,20 @@ export default function Home() {
 
               </label>
 
+              <label className="block">
+                <span className="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-600">Transaction date</span>
+                <input
+                  type="date"
+                  value={transactionDate}
+                  onChange={(e) => setTransactionDate(e.target.value)}
+                  className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none transition focus:border-cyan-500 focus:ring-2 focus:ring-cyan-100"
+                />
+              </label>
+
               <button
                 onClick={addTransaction}
                 className="w-full rounded-lg bg-slate-900 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-slate-700 disabled:cursor-not-allowed disabled:opacity-60"
-                disabled={isSaving || !desc.trim() || !amount || !user.trim()}
+                disabled={isSaving || !desc.trim() || !amount || !user.trim() || !transactionDate}
               >
                 {isSaving ? 'Saving...' : 'Save transaction'}
               </button>
@@ -299,7 +329,7 @@ export default function Home() {
                       </span>
                       <div className="text-left sm:text-right">
                         <p className="font-bold text-slate-900">{formatAmount(t.amount)}</p>
-                        <p className="text-xs text-slate-500">{new Date(t.created_at).toLocaleString()}</p>
+                        <p className="text-xs text-slate-500">{formatDateOnly(t.transaction_date || t.created_at)}</p>
                       </div>
                     </li>
                   ))}
