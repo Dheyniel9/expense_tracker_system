@@ -68,21 +68,21 @@ self.addEventListener('fetch', (event) => {
     (async () => {
       try {
         const networkResponse = await fetch(request)
-        if (!networkResponse.ok || networkResponse.type !== 'basic') {
-          return networkResponse
-        }
+        const requestUrl = request.url
+        const responseUrl = networkResponse.url
 
-        // Browser extensions can trigger non-http(s) request/response URLs that Cache API cannot store.
-        const responseUrl = networkResponse.url || request.url
-        if (!isHttpRequest(request.url) || !isHttpRequest(responseUrl)) {
-          return networkResponse
-        }
-
-        const cache = await caches.open(CACHE_NAME)
-        try {
-          await cache.put(request, networkResponse.clone())
-        } catch {
-          // Skip cache write for unsupported request schemes (e.g. chrome-extension)
+        if (
+          requestUrl.startsWith('http') &&
+          responseUrl &&
+          responseUrl.startsWith('http') &&
+          networkResponse.status === 200
+        ) {
+          const cache = await caches.open(CACHE_NAME)
+          try {
+            await cache.put(request, networkResponse.clone())
+          } catch (err) {
+            console.log('Cache put failed:', err)
+          }
         }
         return networkResponse
       } catch {
