@@ -17,6 +17,11 @@ export const metadata: Metadata = {
   title: "BJJC Transaction",
   description: "Fund and expense tracker for BJJC",
   manifest: "/manifest.webmanifest",
+  icons: {
+    icon: "/icon-192.svg",
+    shortcut: "/icon-192.svg",
+    apple: "/icon-192.svg",
+  },
 };
 
 export const viewport: Viewport = {
