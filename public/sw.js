@@ -1,6 +1,15 @@
-const CACHE_NAME = 'jbbc-fund-tracker-v3'
+const CACHE_NAME = 'jbbc-fund-tracker-v4'
 const OFFLINE_URL = '/offline'
 const APP_SHELL = ['/', '/offline', '/manifest.webmanifest']
+
+const isHttpRequest = (requestUrl) => {
+  try {
+    const parsed = new URL(requestUrl)
+    return parsed.protocol === 'http:' || parsed.protocol === 'https:'
+  } catch {
+    return false
+  }
+}
 
 self.addEventListener('install', (event) => {
   event.waitUntil(
@@ -22,6 +31,8 @@ self.addEventListener('activate', (event) => {
 
 self.addEventListener('fetch', (event) => {
   const { request } = event
+  if (!isHttpRequest(request.url)) return
+
   const url = new URL(request.url)
   const isSameOrigin = url.origin === self.location.origin
 
@@ -62,7 +73,11 @@ self.addEventListener('fetch', (event) => {
         }
 
         const cache = await caches.open(CACHE_NAME)
-        cache.put(request, networkResponse.clone())
+        try {
+          await cache.put(request, networkResponse.clone())
+        } catch {
+          // Skip cache write for unsupported request schemes (e.g. chrome-extension)
+        }
         return networkResponse
       } catch {
         const cachedResponse = await caches.match(request)
