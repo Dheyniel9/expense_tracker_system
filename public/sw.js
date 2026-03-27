@@ -1,4 +1,4 @@
-const CACHE_NAME = 'jbbc-fund-tracker-v4'
+const CACHE_NAME = 'jbbc-fund-tracker-v5'
 const OFFLINE_URL = '/offline'
 const APP_SHELL = ['/', '/offline', '/manifest.webmanifest']
 
@@ -69,6 +69,12 @@ self.addEventListener('fetch', (event) => {
       try {
         const networkResponse = await fetch(request)
         if (!networkResponse.ok || networkResponse.type !== 'basic') {
+          return networkResponse
+        }
+
+        // Browser extensions can trigger non-http(s) request/response URLs that Cache API cannot store.
+        const responseUrl = networkResponse.url || request.url
+        if (!isHttpRequest(request.url) || !isHttpRequest(responseUrl)) {
           return networkResponse
         }
 
