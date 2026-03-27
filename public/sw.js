@@ -38,6 +38,7 @@ self.addEventListener('fetch', (event) => {
 
   if (request.method !== 'GET') return
   if (url.protocol !== 'http:' && url.protocol !== 'https:') return
+  if (request.destination === '') return
 
   if (request.mode === 'navigate') {
     event.respondWith(
